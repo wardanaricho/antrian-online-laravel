@@ -20,6 +20,11 @@
     <script src="{{ asset('assets/static/js/initTheme.js') }}"></script>
 
     <div class="row h-100 m-2">
+        <div class="col-lg-12">
+            <div class="float-end">
+                <a href="/login" class="btn btn-primary">Login</a>
+            </div>
+        </div>
         <div class="col-12 col-lg-3 d-none d-lg-block">
         </div>
         <div class="col-12 col-lg-6">

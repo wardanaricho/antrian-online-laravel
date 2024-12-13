@@ -52,25 +52,39 @@ class AntrianController extends Controller
 
     public function ambil_antrian(Request $request)
     {
+        // Mendapatkan tanggal saat ini dalam format Y-m-d
         $tglNow = Carbon::now()->toDateString();
-        $jamNow = Carbon::now();
-        $clinicOpenTime = Carbon::createFromFormat('Y-m-d H:i', $tglNow . ' 15.45');
-        // dd($clinicOpenTime);
-        $maxAntrianPerHari = 20; // Batas maksimal antrian per hari
 
-        // Hitung jumlah antrian pada hari ini
+        // Mendapatkan waktu sekarang
+        $jamNow = Carbon::now();
+
+        // Mendefinisikan waktu buka klinik pada pukul 15:00 pada hari ini
+        $clinicOpenTime = Carbon::createFromFormat('Y-m-d H:i', $tglNow . ' 15:00');
+
+        // Batas maksimal antrean per hari
+        $maxAntrianPerHari = 20;
+
+        // Menghitung jumlah antrean yang ada pada hari ini
         $countAntrianToday = Antrian::where('tanggal', $tglNow)->count();
 
+        // Jika jumlah antrean hari ini telah mencapai batas maksimal
         if ($countAntrianToday >= $maxAntrianPerHari) {
+            // Cari tanggal besok
             $tglBesok = Carbon::now()->addDay()->toDateString();
+
+            // Loop mencari hari berikutnya dengan antrean yang belum penuh
             while (true) {
+                // Menghitung jumlah antrean untuk tanggal besok
                 $countAntrianBesok = Antrian::where('tanggal', $tglBesok)->count();
                 if ($countAntrianBesok < $maxAntrianPerHari) {
+                    // Berhenti jika tanggal ditemukan
                     break;
                 }
+                // Tambahkan satu hari lagi
                 $tglBesok = Carbon::createFromFormat('Y-m-d', $tglBesok)->addDay()->toDateString();
             }
 
+            // Menampilkan konfirmasi tanggal untuk antrian baru
             return view('antrian-depan.konfirmasi-antrian', [
                 'no_rkm_medis' => $request->no_rkm_medis,
                 'id_dokter' => $request->id_dokter,
@@ -78,89 +92,143 @@ class AntrianController extends Controller
             ]);
         }
 
+        // Menentukan nomor antrean berikutnya untuk hari ini
         $no_antrian = $countAntrianToday + 1;
 
-        // Tentukan waktu estimasi berdasarkan jam pengambilan
-        $startEstimationTime = $jamNow->greaterThanOrEqualTo($clinicOpenTime) ? $jamNow : $clinicOpenTime;
-        $estimasiJamAntrian = $startEstimationTime->copy()->addMinutes(10 * ($no_antrian - 1));
+        // Mengambil antrean terakhir untuk menentukan waktu estimasi
+        $prevAntrian = Antrian::where('tanggal', $tglNow)
+            ->orderBy('no_antrian', 'desc')
+            ->first();
 
+        if ($prevAntrian) {
+            // Menghitung waktu estimasi berdasarkan antrean terakhir
+            $lastEstimasiTime = Carbon::parse($prevAntrian->estimasi);
+
+            // Menentukan waktu mulai estimasi untuk antrean berikutnya
+            $startEstimationTime = $lastEstimasiTime->greaterThanOrEqualTo($jamNow)
+                ? $lastEstimasiTime->addMinutes(10)
+                : $clinicOpenTime;
+        } else {
+            // Jika belum ada antrean, gunakan waktu buka klinik
+            $startEstimationTime = $jamNow->greaterThanOrEqualTo($clinicOpenTime) ? $jamNow : $clinicOpenTime;
+        }
+
+        // Salin waktu estimasi
+        $estimasiJamAntrian = $startEstimationTime->copy();
+
+        // Data untuk tabel antrean
         $data = [
             'tanggal' => $tglNow,
             'jam' => $jamNow->toTimeString(),
             'no_antrian' => $no_antrian,
-            'status_antrian' => '1',
+            'status_antrian' => '1', // Status default untuk antrean baru
             'no_rkm_medis' => $request->no_rkm_medis,
             'dokter_id' => $request->id_dokter,
             'estimasi' => $estimasiJamAntrian,
         ];
 
+        // Data untuk tabel registrasi
         $register = [
             'no_antrian' => $data['no_antrian'],
             'no_rkm_medis' => $request->no_rkm_medis,
             'tanggal_regis' => $tglNow,
             'jam_regis' => $jamNow->toTimeString(),
-            'keluhan_awal' => '-',
+            'keluhan_awal' => '-', // Keluhan default
             'dokter_id' => $request->id_dokter,
         ];
 
         try {
+            // Simpan data antrean dan registrasi ke database
             Antrian::create($data);
             Register::create($register);
 
+            // Redirect ke halaman hasil antrean
             return redirect()->to('/result-antrian/' . $tglNow . '/' . $request->no_rkm_medis . '/' . $data['no_antrian']);
         } catch (\Exception $e) {
+            // Menampilkan error jika terjadi kesalahan
             return 'Error: ' . $e->getMessage();
         }
     }
 
-    public function ambilAntrianBesok(Request $request)
+
+
+    public function ambil_antrian_besok(Request $request)
     {
-        $tglTarget = $request->tanggal;
-        $jamNow = Carbon::now();
-        $clinicOpenTime = Carbon::createFromFormat('Y-m-d H:i', $tglTarget . ' 15.45');
+        // Mendapatkan tanggal besok
+        $tglBesok = Carbon::now()->addDay()->toDateString();
+
+        // Batas maksimal antrean per hari
         $maxAntrianPerHari = 20;
 
-        while (true) {
-            $countAntrian = Antrian::where('tanggal', $tglTarget)->count();
-            if ($countAntrian < $maxAntrianPerHari) {
-                break;
+        // Menghitung jumlah antrean untuk tanggal besok
+        $countAntrianBesok = Antrian::where('tanggal', $tglBesok)->count();
+
+        // Jika jumlah antrean besok telah mencapai batas maksimal
+        if ($countAntrianBesok >= $maxAntrianPerHari) {
+            // Loop untuk mencari hari berikutnya yang belum penuh
+            while (true) {
+                $tglBesok = Carbon::createFromFormat('Y-m-d', $tglBesok)->addDay()->toDateString();
+                $countAntrianBesok = Antrian::where('tanggal', $tglBesok)->count();
+                if ($countAntrianBesok < $maxAntrianPerHari) {
+                    break;
+                }
             }
-            $tglTarget = Carbon::createFromFormat('Y-m-d', $tglTarget)->addDay()->toDateString();
-            $clinicOpenTime = Carbon::createFromFormat('Y-m-d H:i', $tglTarget . ' 15.45');
         }
 
-        $no_antrian = $countAntrian + 1;
-        $startEstimationTime = $jamNow->greaterThanOrEqualTo($clinicOpenTime) ? $jamNow : $clinicOpenTime;
-        $estimasiJamAntrian = $startEstimationTime->copy()->addMinutes(10 * ($no_antrian - 1));
+        // Menentukan nomor antrean berikutnya untuk besok
+        $no_antrian = $countAntrianBesok + 1;
 
+        // Mengambil antrean terakhir untuk menentukan waktu estimasi
+        $prevAntrian = Antrian::where('tanggal', $tglBesok)
+            ->orderBy('no_antrian', 'desc')
+            ->first();
+
+        // Menentukan waktu estimasi awal
+        $clinicOpenTime = Carbon::createFromFormat('Y-m-d H:i', $tglBesok . ' 15:00');
+        if ($prevAntrian) {
+            $lastEstimasiTime = Carbon::parse($prevAntrian->estimasi);
+            $startEstimationTime = $lastEstimasiTime->addMinutes(10);
+        } else {
+            $startEstimationTime = $clinicOpenTime;
+        }
+
+        // Salin waktu estimasi
+        $estimasiJamAntrian = $startEstimationTime->copy();
+
+        // Data untuk tabel antrean
         $data = [
-            'tanggal' => $tglTarget,
-            'jam' => $jamNow->toTimeString(),
+            'tanggal' => $tglBesok,
+            'jam' => Carbon::now()->toTimeString(),
             'no_antrian' => $no_antrian,
-            'status_antrian' => '1',
+            'status_antrian' => '1', // Status default untuk antrean baru
             'no_rkm_medis' => $request->no_rkm_medis,
             'dokter_id' => $request->id_dokter,
             'estimasi' => $estimasiJamAntrian,
         ];
 
+        // Data untuk tabel registrasi
         $register = [
             'no_antrian' => $data['no_antrian'],
             'no_rkm_medis' => $request->no_rkm_medis,
-            'tanggal_regis' => $tglTarget,
-            'jam_regis' => $jamNow->toTimeString(),
-            'keluhan_awal' => '-',
+            'tanggal_regis' => $tglBesok,
+            'jam_regis' => Carbon::now()->toTimeString(),
+            'keluhan_awal' => '-', // Keluhan default
             'dokter_id' => $request->id_dokter,
         ];
 
         try {
+            // Simpan data antrean dan registrasi ke database
             Antrian::create($data);
             Register::create($register);
 
-            return redirect()->to('/result-antrian/' . $tglTarget . '/' . $request->no_rkm_medis . '/' . $data['no_antrian']);
+            // Redirect ke halaman hasil antrean
+            return redirect()->to('/result-antrian/' . $tglBesok . '/' . $request->no_rkm_medis . '/' . $data['no_antrian']);
         } catch (\Exception $e) {
-            return redirect()->back()->with('error', 'Terjadi kesalahan: ' . $e->getMessage());
+            // Menampilkan error jika terjadi kesalahan
+            return 'Error: ' . $e->getMessage();
         }
     }
+
 
 
     public function result_antrian($tgl, $no_rkm_medis, $no_antrian)
